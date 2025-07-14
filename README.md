@@ -1,4 +1,4 @@
-#  GATEWAY API 게이트웨이  GATEWAY
+#  API Gateway
 
 ## 📖 프로젝트 소개
 
