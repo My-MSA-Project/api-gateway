@@ -1,0 +1,46 @@
+spring:
+  application:
+    name: api-gateway
+  data:
+    redis:
+      host: localhost
+      port: 6379
+  
+  main:
+    web-application-type: reactive
+  cloud:
+    gateway:
+      server:
+        webflux:
+          routes:
+            - id: user-service
+              uri: lb://user-service
+              predicates:
+                - Path=/user/**
+              filters:
+                - RewritePath=/user/(?<path>.*), /${path}
+                - AddRequestHeader=Gateway-Service, api-gateway
+
+server:
+  port: 8080
+  
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+    register-with-eureka: true
+    fetch-registry: true
+    
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,gateway,routes
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: when_authorized
+  
+jwt:
+    # reservation-secret-key-ergp9wv125mnvv20598v23450v
+    secret: 'cmVzZXJ2YXRpb24tc2VjcmV0LWtleS1lcmdwOXd2MTI1bW52djIwNTk4djIzNDUwdg=='
