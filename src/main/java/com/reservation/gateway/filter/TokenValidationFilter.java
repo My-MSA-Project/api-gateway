@@ -4,9 +4,11 @@ import com.reservation.gateway.jwt.JwtValidator;
 import io.jsonwebtoken.Claims;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.cloud.gateway.filter.GatewayFilter;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
+import org.springframework.cloud.gateway.filter.GlobalFilter;
+import org.springframework.core.Ordered;
 import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.http.HttpCookie;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.http.server.reactive.ServerHttpResponse;
@@ -21,7 +23,7 @@ import java.util.Set;
 @Component
 @RequiredArgsConstructor
 @Slf4j
-public class TokenValidationFilter implements GatewayFilter {
+public class TokenValidationFilter implements GlobalFilter, Ordered {
 
     private final JwtValidator jwtValidator;
 
@@ -45,6 +47,8 @@ public class TokenValidationFilter implements GatewayFilter {
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         String path = exchange.getRequest().getPath().value();
 
+        log.info("[TokenValidationFilter] 요청 경로: {}", path);
+
         // 1. 공개 경로 체크
         if (isPublicPath(path)) {
             log.debug("Public path accessed: {}", path);
@@ -62,26 +66,31 @@ public class TokenValidationFilter implements GatewayFilter {
         return handleConditionalPath(exchange, chain);
     }
 
-    private boolean isPublicPath(String path) {
-        return publicPaths.stream()
-                .anyMatch(publicPath -> path.startsWith(publicPath));
-    }
+    // 토큰 추출 로직 개선 (쿠키 + 헤더 지원)
+    private String extractToken(ServerHttpRequest request) {
+        // 1. Authorization 헤더에서 토큰 추출
+        String authHeader = request.getHeaders().getFirst("Authorization");
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            return authHeader.substring(7);
+        }
 
-    private boolean isProtectedPath(String path) {
-        return protectedPaths.stream()
-                .anyMatch(protectedPath -> path.startsWith(protectedPath));
+        // 2. 쿠키에서 토큰 추출
+        List<HttpCookie> cookies = request.getCookies().get("accessToken");
+        if (cookies != null && !cookies.isEmpty()) {
+            return cookies.get(0).getValue();
+        }
+
+        return null;
     }
 
     // 보호된 경로 처리 (토큰 필수)
     private Mono<Void> handleProtectedPath(ServerWebExchange exchange, GatewayFilterChain chain) {
         ServerHttpRequest request = exchange.getRequest();
-        String authHeader = request.getHeaders().getFirst("Authorization");
+        String token = extractToken(request);
 
-        if (!isValidTokenRequest(authHeader)) {
+        if (token == null) {
             return handleUnauthorized(exchange, "로그인이 필요합니다");
         }
-
-        String token = authHeader.substring(7);
 
         try {
             Claims claims = jwtValidator.validateToken(token);
@@ -95,14 +104,12 @@ public class TokenValidationFilter implements GatewayFilter {
     // 조건부 경로 처리 (토큰 선택적)
     private Mono<Void> handleConditionalPath(ServerWebExchange exchange, GatewayFilterChain chain) {
         ServerHttpRequest request = exchange.getRequest();
-        String authHeader = request.getHeaders().getFirst("Authorization");
+        String token = extractToken(request);
 
-        if (!isValidTokenRequest(authHeader)) {
+        if (token == null) {
             // 토큰이 없으면 게스트로 처리
             return addGuestInfoAndContinue(exchange, chain);
         }
-
-        String token = authHeader.substring(7);
 
         try {
             Claims claims = jwtValidator.validateToken(token);
@@ -114,7 +121,17 @@ public class TokenValidationFilter implements GatewayFilter {
         }
     }
 
-    // Roles 사용자 정보 추가
+    private boolean isPublicPath(String path) {
+        return publicPaths.stream()
+                .anyMatch(publicPath -> path.startsWith(publicPath));
+    }
+
+    private boolean isProtectedPath(String path) {
+        return protectedPaths.stream()
+                .anyMatch(protectedPath -> path.startsWith(protectedPath));
+    }
+
+    // 나머지 메서드들은 기존과 동일...
     private Mono<Void> addUserInfoAndContinue(ServerWebExchange exchange, GatewayFilterChain chain, Claims claims) {
         String roles = extractRoles(claims);
 
@@ -137,7 +154,6 @@ public class TokenValidationFilter implements GatewayFilter {
         return chain.filter(exchange.mutate().request(modifiedRequest).build());
     }
 
-    //  roles 추출
     private String extractRoles(Claims claims) {
         Object rolesObj = claims.get("roles");
 
@@ -152,10 +168,6 @@ public class TokenValidationFilter implements GatewayFilter {
         return "USER"; // 기본값
     }
 
-    private boolean isValidTokenRequest(String authHeader) {
-        return authHeader != null && authHeader.startsWith("Bearer ");
-    }
-
     private Mono<Void> handleUnauthorized(ServerWebExchange exchange, String message) {
         ServerHttpResponse response = exchange.getResponse();
         response.setStatusCode(HttpStatus.UNAUTHORIZED);
@@ -168,5 +180,10 @@ public class TokenValidationFilter implements GatewayFilter {
 
         DataBuffer buffer = response.bufferFactory().wrap(body.getBytes(StandardCharsets.UTF_8));
         return response.writeWith(Mono.just(buffer));
+    }
+
+    @Override
+    public int getOrder() {
+        return 1;
     }
 }

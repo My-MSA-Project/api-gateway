@@ -5,7 +5,8 @@ spring:
     redis:
       host: localhost
       port: 6379
-  
+      database: 0
+      timeout: 2000ms
   main:
     web-application-type: reactive
   cloud:
@@ -13,13 +14,22 @@ spring:
       server:
         webflux:
           routes:
-            - id: user-service
+            - id: user-service-auth
+              uri: lb://user-service
+              predicates:
+                - Path=/auth/**
+            - id: user-service-user
               uri: lb://user-service
               predicates:
                 - Path=/user/**
-              filters:
-                - RewritePath=/user/(?<path>.*), /${path}
-                - AddRequestHeader=Gateway-Service, api-gateway
+#              filters:
+#                - name: RequestRateLimiter
+#                  args:
+#                    redis-rate-limiter.replenishRate: 10
+#                    redis-rate-limiter.burstCapacity: 20
+#                    redis-rate-limiter.requestedTokens: 1
+#                - RewritePath=/auth/(?<path>.*), /${path}
+#                - AddRequestHeader=Gateway-Service, api-gateway
 
 server:
   port: 8080
