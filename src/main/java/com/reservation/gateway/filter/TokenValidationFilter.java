@@ -29,18 +29,20 @@ public class TokenValidationFilter implements GlobalFilter, Ordered {
 
     // 공개 경로 설정
     private final Set<String> publicPaths = Set.of(
-            "/public",
-            "/auth",
+            "/auth/api/v1/login",
+            "/auth/api/v1/register",
             "/health",
             "/login",
-            "/register"
+            "/register",
+            "/reserve/api/concerts"
     );
 
     // 보호된 경로 설정 (토큰 필수)
     private final Set<String> protectedPaths = Set.of(
             "/user",
-            "/profile",
-            "/admin"
+            "/admin",
+            "/auth/api/v1/logout",
+            "/reserve/api/reservations"
     );
 
     @Override
@@ -49,20 +51,24 @@ public class TokenValidationFilter implements GlobalFilter, Ordered {
 
         log.info("[TokenValidationFilter] 요청 경로: {}", path);
 
+        // 토큰 추출 및 로그 출력
+        String token = extractToken(exchange.getRequest());
+        log.info("[TokenValidationFilter] 가져온 토큰: {}", token);
+
         // 1. 공개 경로 체크
         if (isPublicPath(path)) {
-            log.debug("Public path accessed: {}", path);
+            log.info("Public path accessed: {}", path);
             return chain.filter(exchange);
         }
 
         // 2. 보호된 경로 체크
         if (isProtectedPath(path)) {
-            log.debug("Protected path accessed: {}", path);
+            log.info("Protected path accessed: {}", path);
             return handleProtectedPath(exchange, chain);
         }
 
         // 3. 조건부 경로 (토큰 있으면 검증, 없으면 게스트)
-        log.debug("Conditional path accessed: {}", path);
+        log.info("Conditional path accessed: {}", path);
         return handleConditionalPath(exchange, chain);
     }
 
@@ -131,19 +137,24 @@ public class TokenValidationFilter implements GlobalFilter, Ordered {
                 .anyMatch(protectedPath -> path.startsWith(protectedPath));
     }
 
-    // 나머지 메서드들은 기존과 동일...
     private Mono<Void> addUserInfoAndContinue(ServerWebExchange exchange, GatewayFilterChain chain, Claims claims) {
         String roles = extractRoles(claims);
+        String token = extractToken(exchange.getRequest()); // 토큰 다시 추출
 
         ServerHttpRequest modifiedRequest = exchange.getRequest().mutate()
                 .header("X-User-Id", claims.getSubject())
                 .header("X-User-Roles", roles)
                 .header("X-User-Status", "AUTHENTICATED")
+                .headers(headers -> {
+                    headers.remove("Cookie");
+                    headers.add("Authorization", "Bearer " + token);
+                })
                 .build();
 
-        log.debug("User authenticated: {} with roles: {}", claims.getSubject(), roles);
         return chain.filter(exchange.mutate().request(modifiedRequest).build());
     }
+
+
 
     private Mono<Void> addGuestInfoAndContinue(ServerWebExchange exchange, GatewayFilterChain chain) {
         ServerHttpRequest modifiedRequest = exchange.getRequest().mutate()

@@ -17,19 +17,23 @@ spring:
             - id: user-service-auth
               uri: lb://user-service
               predicates:
-                - Path=/auth/**
-            - id: user-service-user
+                - Path=/auth/**,/user/**
+            - id: user-service-oauth2
               uri: lb://user-service
               predicates:
-                - Path=/user/**
-#              filters:
-#                - name: RequestRateLimiter
-#                  args:
-#                    redis-rate-limiter.replenishRate: 10
-#                    redis-rate-limiter.burstCapacity: 20
-#                    redis-rate-limiter.requestedTokens: 1
-#                - RewritePath=/auth/(?<path>.*), /${path}
-#                - AddRequestHeader=Gateway-Service, api-gateway
+                - Path=/login/oauth2/code/google  # 구글 리다이렉트 경로 추가
+            - id: user-service-oauth2-authorization
+              uri: lb://user-service
+              predicates:
+                - Path=/oauth2/authorization/**   # OAuth2 인증 시작 경로 추가
+            - id: reservation-service-reserve
+              uri: lb://reservation-service
+              predicates:
+                - Path=/reserve/api/reservations/**
+            - id: reservation-service-concert
+              uri: lb://reservation-service
+              predicates:
+                - Path=/reserve/api/concerts/**
 
 server:
   port: 8080
